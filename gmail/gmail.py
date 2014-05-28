@@ -25,7 +25,8 @@ class Gmail():
         self.smtp = None
         self.logged_in = False
         self.mailboxes = {}
-        self.current_mailbox = None
+        self.gmail_special_mailboxes = {}
+        self.current_mailbox_name = None
 
         # self.connect()
 
@@ -50,26 +51,36 @@ class Gmail():
     def fetch_mailboxes(self):
         response, mailbox_list = self.imap.list()
         if response == 'OK':
-            for mailbox in mailbox_list:
-                mailbox_name = mailbox.split('"/"')[-1].replace('"', '').strip()
-                mailbox_attrs = mailbox.split('"/"')[0]
+            for mailbox_str in mailbox_list:
                 mailbox = Mailbox(self)
-                mailbox.external_name = mailbox_name
-                mailbox.attrs = mailbox_attrs
-                self.mailboxes[mailbox_name] = mailbox
+                mailbox.parse(mailbox_str)
+                self.mailboxes[mailbox.external_name] = mailbox
+                if mailbox.gmail_special:
+                    self.gmail_special_mailboxes[mailbox.gmail_special] = mailbox
+        else:
+            print mailbox_list
 
-    def use_mailbox(self, mailbox):
+    def use_mailbox(self, mailbox_name=None, mailbox=None):
         if mailbox:
-            self.imap.select(mailbox)
-        self.current_mailbox = mailbox
+            mailbox_name = mailbox.external_name
+        self.imap.select(mailbox_name)
+        self.current_mailbox_name = mailbox
 
     def mailbox(self, mailbox_name):
         if mailbox_name not in self.mailboxes:
             mailbox_name = encode_utf7(mailbox_name)
         mailbox = self.mailboxes.get(mailbox_name)
 
-        if mailbox and not self.current_mailbox == mailbox_name:
-            self.use_mailbox(mailbox_name)
+        if mailbox and not self.current_mailbox_name == mailbox_name:
+            self.use_mailbox(mailbox_name=mailbox_name)
+
+        return mailbox
+
+    def special_mailbox(self, mailbox_name):
+        mailbox = self.gmail_special_mailboxes.get(mailbox_name)
+
+        if mailbox and not self.current_mailbox_name == mailbox.external_name:
+            self.use_mailbox(mailbox=mailbox)
 
         return mailbox
 
@@ -138,7 +149,7 @@ class Gmail():
 
     def copy(self, uid, to_mailbox, from_mailbox=None):
         if from_mailbox:
-            self.use_mailbox(from_mailbox)
+            self.use_mailbox(mailbox_name=from_mailbox)
         self.imap.uid('COPY', uid, to_mailbox)
 
     def fetch_multiple_messages(self, messages):
@@ -162,19 +173,25 @@ class Gmail():
         return self.mailbox("INBOX")
 
     def spam(self):
-        return self.mailbox("[Gmail]/Spam")
+        return self.special_mailbox("\\Junk")
 
     def starred(self):
-        return self.mailbox("[Gmail]/Starred")
+        return self.special_mailbox("\\Flagged")
 
     def all_mail(self):
-        return self.mailbox("[Gmail]/All Mail")
+        return self.special_mailbox("\\All")
 
     def sent_mail(self):
-        return self.mailbox("[Gmail]/Sent Mail")
+        return self.special_mailbox("\\Sent")
 
     def important(self):
-        return self.mailbox("[Gmail]/Important")
+        return self.special_mailbox("\\Important")
+
+    def trash_mail(self):
+        return self.special_mailbox("\\Trash")
+
+    def drafts(self):
+        return self.special_mailbox("\\Drafts")
 
     def mail_domain(self):
         return self.username.split('@')[-1]

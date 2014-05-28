@@ -3,15 +3,40 @@ from utf import encode as encode_utf7, decode as decode_utf7
 
 from message import Message
 
+# http://tools.ietf.org/html/rfc3501#section-7.2.2
+MAILBOX_RE = re.compile(r'\((?P<name_attrib>.*)\) "(?P<delim>.*)" "(?P<name>.*)"')
+IMAP4_STD = ['\\Noinferiors', '\\Noselect', '\\Marked', '\\Unmarked']
 
-class Mailbox():
+# special indicator
+GMAIL_EXTRA = ['\\HasNoChildren', '\\HasChildren']
+# special folders (cannot add/remove because they are flags)
+GMAIL_SPECIAL = ['\\Trash', '\\Flagged', '\\Junk', '\\Important', '\\Drafts', '\\All', '\\Sent']
 
-    def __init__(self, gmail, name="INBOX"):
-        self.name = name
+
+class Mailbox(object):
+
+    def __init__(self, gmail):
         self.gmail = gmail
         self.date_format = "%d-%b-%Y"
         self.messages = {}
         self.attrs = ""
+        self.name = ""
+        self.gmail_special = ""
+
+    def parse(self, mailbox_str):
+        m = MAILBOX_RE.match(mailbox_str)
+        d = m.groupdict()
+        self.delim = d['delim']
+        #self.name = d['name']
+        self.external_name = d['name']
+        a = d['name_attrib']
+        self.attrs = a.split(' ')
+        for attr in self.attrs:
+            if attr in GMAIL_SPECIAL:
+                self.gmail_special = attr
+                break
+        # print(self.name)
+        # print(self.external_name)
 
     @property
     def external_name(self):
