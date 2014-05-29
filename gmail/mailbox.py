@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import re
 from utf import encode as encode_utf7, decode as decode_utf7
 

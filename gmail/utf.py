@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 # The contents of this file has been derived code from the Twisted project
 # (http://twistedmatrix.com/). The original author is Jp Calderone.
 

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import datetime
 import email
 import re
@@ -28,10 +30,10 @@ def try_parse(header, encoding="ASCII"):
 
 def try_decode(header):
     """
-    Try to decode specified header,
-    We need to wrap this in a try / except for the very rare case of FUCKED UP clients
-    using FUCKING non-standard base63 encoding. Wow. Such smart. Fucking faglords.
-    Please phpmailer.codeworxtech.com fix this shit or i'll fucking kill your family and set your house on fire.
+    Try to decode specified header.
+    We need to wrap this in a try / except for the very rare case of BUGGY clients
+    using non-standard base63 encoding.
+    Please phpmailer.codeworxtech.com fix this.
     See http://bugs.python.org/issue12489
     """
 
@@ -39,6 +41,20 @@ def try_decode(header):
         return decode_header(header)
     except HeaderParseError:
         return [[header, None]]
+
+
+def parse_labels(headers):
+    m = re.search(r'X-GM-LABELS \(([^\)]+)\)', headers)
+    if m:
+        labels = m.groups(1)[0].split(' ')
+        return map(lambda l: l.replace('"', '').decode("string_escape"), labels)
+    else:
+        return list()
+
+
+def parse_header(encoded_header):
+    dh = try_decode(encoded_header)
+    return ''.join([try_parse(t[0], t[1]) for t in dh])
 
 
 class Message():
@@ -70,35 +86,37 @@ class Message():
 
         self.attachments = None
 
+        self._raw_headers = None
+        self._raw_body = None
+
+
     def is_read(self):
         return ('\\Seen' in self.flags)
 
-    def read(self):
-        flag = '\\Seen'
+    def add_flag(self, flag):
         self.gmail.imap.uid('STORE', self.uid, '+FLAGS', flag)
         if flag not in self.flags:
             self.flags.append(flag)
 
-    def unread(self):
-        flag = '\\Seen'
+    def remove_flag(self, flag):
         self.gmail.imap.uid('STORE', self.uid, '-FLAGS', flag)
         if flag in self.flags:
             self.flags.remove(flag)
+
+    def read(self):
+        self.add_flag('\\Seen')
+
+    def unread(self):
+        self.remove_flag('\\Seen')
 
     def is_starred(self):
         return ('\\Flagged' in self.flags)
 
     def star(self):
-        flag = '\\Flagged'
-        self.gmail.imap.uid('STORE', self.uid, '+FLAGS', flag)
-        if flag not in self.flags:
-            self.flags.append(flag)
+        self.add_flag('\\Flagged')
 
     def unstar(self):
-        flag = '\\Flagged'
-        self.gmail.imap.uid('STORE', self.uid, '-FLAGS', flag)
-        if flag in self.flags:
-            self.flags.remove(flag)
+        self.remove_flag('\\Flagged')
 
     def is_draft(self):
         return ('\\Draft' in self.flags)
@@ -145,44 +163,25 @@ class Message():
     def archive(self):
         self.move_to('[Gmail]/All Mail')
 
-    def parse_headers(self, message):
-        hdrs = {}
-        for hdr in message.keys():
-            hdrs[hdr] = message[hdr]
-        return hdrs
+    def parse_FETCH_header(self, raw_headers):
+        self.flags = list(ParseFlags(raw_headers))
+        self.labels = parse_labels(raw_headers)
 
-    def parse_flags(self, headers):
-        return list(ParseFlags(headers))
-        # flags = re.search(r'FLAGS \(([^\)]*)\)', headers).groups(1)[0].split(' ')
+        if re.search(r'X-GM-THRID (\d+)', raw_headers):
+            self.thread_id = re.search(r'X-GM-THRID (\d+)', raw_headers).groups(1)[0]
+        if re.search(r'X-GM-MSGID (\d+)', raw_headers):
+            self.message_id = re.search(r'X-GM-MSGID (\d+)', raw_headers).groups(1)[0]
 
-    def parse_labels(self, headers):
-        if re.search(r'X-GM-LABELS \(([^\)]+)\)', headers):
-            labels = re.search(r'X-GM-LABELS \(([^\)]+)\)', headers).groups(1)[0].split(' ')
-            return map(lambda l: l.replace('"', '').decode("string_escape"), labels)
-        else:
-            return list()
 
-    def parse_header(self, encoded_header):
-        dh = try_decode(encoded_header)
-        return ''.join([try_parse(t[0], t[1]) for t in dh])
+    def parse_FETCH_BODY(self, body):
+        self.message = email.message_from_string(body)
 
-    def parse(self, raw_message):
-        raw_headers = raw_message[0]
-        raw_email = raw_message[1]
+        self.headers = dict(self.message)
+        self.to = parse_header(self.message['to'])
+        self.fr = parse_header(self.message['from'])
+        self.subject = parse_header(self.message['subject'])
 
-        self.message = email.message_from_string(raw_email)
-
-        def to_unicode(value, charset):
-            r = try_parse(value, charset)
-
-            return r
-
-        self.headers = self.parse_headers(self.message)
-
-        self.to = self.parse_header(self.message['to'])
-        self.fr = self.parse_header(self.message['from'])
-        self.subject = self.parse_header(self.message['subject'])
-
+        to_unicode = try_parse
         if self.message.get_content_maintype() == "multipart":
             for content in self.message.walk():
                 if content.get_content_type() == "text/plain":
@@ -199,28 +198,37 @@ class Message():
         except:
             self.sent_at = datetime.datetime.now()
 
-        self.flags = self.parse_flags(raw_headers)
-
-        self.labels = self.parse_labels(raw_headers)
-
-        if re.search(r'X-GM-THRID (\d+)', raw_headers):
-            self.thread_id = re.search(r'X-GM-THRID (\d+)', raw_headers).groups(1)[0]
-        if re.search(r'X-GM-MSGID (\d+)', raw_headers):
-            self.message_id = re.search(r'X-GM-MSGID (\d+)', raw_headers).groups(1)[0]
-
         # Parse attachments into attachment objects array for this message
         self.attachments = [
             Attachment(attachment) for attachment in self.message._payload
                 if not isinstance(attachment, basestring) and attachment.get('Content-Disposition') is not None and attachment.get_filename() is not None
         ]
 
-    def fetch(self):
-        if not self.message:
+    def parse(self, raw_response, keep_raw=False):
+        # raw_response is a list of tuples/str
+        # https://docs.python.org/2/library/imaplib.html#imaplib.IMAP4.fetch
+        raw_headers = raw_body = None
+        if type(raw_response[0]) in (tuple, list, ):
+            raw_headers, raw_body = raw_response[0]
+        else:
+            raw_headers = raw_response[0]
+            raw_body = None
+        self.parse_FETCH_header(raw_headers)
+        if raw_body:
+            self.parse_FETCH_BODY(raw_body)
+        if keep_raw:
+            self._raw_headers = raw_headers
+            self._raw_body = raw_body
+
+    def fetch(self, keep_raw=False, force=False):
+        if not self.message or force:
             response, results = self.gmail.imap.uid('FETCH', self.uid, '(BODY.PEEK[] FLAGS X-GM-THRID X-GM-MSGID X-GM-LABELS)')
-
-            self.parse(results[0])
-
+            self.parse(results, keep_raw)
         return self.message
+
+    def fetch_light(self, keep_raw=False):
+        response, results = self.gmail.imap.uid('FETCH', self.uid, '(FLAGS X-GM-THRID X-GM-MSGID X-GM-LABELS)')
+        self.parse(results, keep_raw)
 
     # returns a list of fetched messages (both sent and received) in chronological order
     def fetch_thread(self):

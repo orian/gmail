@@ -1,5 +1,6 @@
-from .gmail import Gmail
+# -*- coding: utf-8 -*-
 
+from .gmail import Gmail
 
 def login(username, password):
     gmail = Gmail()
