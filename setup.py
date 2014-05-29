@@ -9,7 +9,7 @@ def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 setup(
-    name = "gmail",
+    name = "libgmail",
     version = "0.0.5",
     author = "Charlie Guo",
     author_email = "FIXME",

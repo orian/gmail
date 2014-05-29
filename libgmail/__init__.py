@@ -5,7 +5,7 @@ GMail! Woo!
 
 """
 
-__title__ = 'gmail'
+__title__ = 'libgmail'
 __version__ = '0.1'
 __author__ = 'Charlie Guo'
 __build__ = 0x0001
